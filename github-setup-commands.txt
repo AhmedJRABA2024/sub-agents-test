@@ -1,0 +1,26 @@
+# GitHub Repository Setup Commands
+# Run these commands after creating the repository on GitHub
+
+# Steps to complete:
+# 1. Go to github.com and create a new public repository named "sub-agents-test"
+# 2. Do NOT initialize with README (you already have content)
+# 3. After creation, GitHub will show your repository URL
+# 4. Replace YOUR_USERNAME below with your actual GitHub username
+# 5. Run the commands below
+
+# 1. Add remote origin (replace YOUR_USERNAME with your GitHub username)
+git remote add origin https://github.com/YOUR_USERNAME/sub-agents-test.git
+
+# 2. Verify remote was added
+git remote -v
+
+# 3. Push to GitHub (first time)
+git push -u origin master
+
+# 4. Verify push was successful
+git status
+
+# After running these commands successfully:
+# - Your repository will be live on GitHub
+# - Your local repository will be connected to the remote
+# - Both commits (aefe102 and af8f7e5) will be pushed to GitHub

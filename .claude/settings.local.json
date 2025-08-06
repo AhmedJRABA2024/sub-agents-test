@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init:*)",
+      "Bash(mkdir:*)",
+      "Bash(setx:*)",
+      "WebFetch(domain:api.supabase.com)",
+      "Bash(npx:*)",
+      "Bash(supabase:*)",
+      "Bash(node:*)",
+      "Bash(npm init:*)",
+      "Bash(npm install:*)",
+      "Bash(rm:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(gh:*)",
+      "Bash(where git)",
+      "Bash(npm --version)",
+      "Bash(git config:*)"
+    ],
+    "deny": []
+  },
+  "disabledMcpjsonServers": [
+    "supabase",
+    "github",
+    "context7"
+  ]
+}
