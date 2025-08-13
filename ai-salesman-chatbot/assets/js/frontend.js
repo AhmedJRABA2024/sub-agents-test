@@ -480,6 +480,15 @@
             if (data.products && data.products.length > 0) {
                 const $lastMessage = $('#chatbot-messages .message:last-child .message-text');
                 
+                // CRITICAL: Never add products to welcome messages
+                const $parentMessage = $lastMessage.closest('.message');
+                const isWelcomeMessage = $parentMessage.closest('.welcome-message').length > 0;
+                
+                if (isWelcomeMessage) {
+                    console.log('🚫 Skipping product display - this is a welcome message');
+                    return;
+                }
+                
                 // Create modern products container
                 const productsContainer = $('<div class="products-recommendation-container"></div>');
                 
