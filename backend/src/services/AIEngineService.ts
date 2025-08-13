@@ -64,7 +64,7 @@ export class AIEngineService {
       const aiResponse = await this.generateAIResponse(request, context, analysis);
 
       // Post-process response (add products, coupons, etc.)
-      const enhancedResponse = await this.enhanceResponse(aiResponse, context, analysis);
+      const enhancedResponse = await this.enhanceResponse(aiResponse, context, analysis, request.message);
 
       // Cache response for similar queries
       await this.cacheResponse(request, enhancedResponse);
@@ -285,26 +285,47 @@ Respond with valid JSON only:
   private async enhanceResponse(
     response: AIResponse,
     context: ConversationContext,
-    analysis: any
+    analysis: any,
+    query: string
   ): Promise<AIResponse> {
     const enhanced = { ...response };
 
     try {
-      // SMART PRODUCT DETECTION: Include products when:
-      // 1. LangGraph found product knowledge (means products are relevant to the query)
-      // 2. Intent suggests product interest
-      // 3. Analysis has unknown intent but we have products in the database
-      
+      // INTELLIGENT PRODUCT INCLUSION: Only include products when truly relevant
       const productKnowledge = context['productKnowledge'] || [];
       const hasProductKnowledge = productKnowledge.some(node => node.metadata?.type === 'product');
       
-      // Always try to get products if:
-      // - LangGraph found relevant products
-      // - Intent is product-related
-      // - We have any uncertainty (unknown intent)
-      if (hasProductKnowledge || 
-          ['product_inquiry', 'comparison', 'purchase_intent'].includes(analysis.intent) || 
-          analysis.intent === 'unknown') {
+      // Analyze query for product-specific keywords  
+      const queryLower = query.toLowerCase();
+      const isInventoryQuery = /\b(how many|total|count)\s+(products?|items?|laptops?|computers?)\b/i.test(query);
+      const isShowAllQuery = /\b(show|display|see|list)\s+(all|entire|complete|every)\s+(products?|items?|laptops?|computers?|inventory|catalog)\b/i.test(query);
+      const isProductRequest = /\b(show|suggest|recommend|find|looking for|need|want|buy)\s+(products?|laptop|computer|gaming|design)\b/i.test(query);
+      const isSpecificProductQuery = /\b(asus|msi|lenovo|hp|katana|strix|vivobook|expertbook|zenbook)\b/i.test(query);
+      
+      // SMART LOGIC: Only include products when:
+      // 1. User explicitly asks for product suggestions/recommendations  
+      // 2. User asks to see all products
+      // 3. LangGraph found specific product matches
+      // 4. User mentions specific brands/models
+      // 5. Intent is clearly product-focused
+      const shouldIncludeProducts = (
+        isProductRequest ||
+        isShowAllQuery ||
+        hasProductKnowledge ||
+        isSpecificProductQuery ||
+        ['product_inquiry', 'comparison', 'purchase_intent'].includes(analysis.intent)
+      );
+      
+      // For inventory count queries, don't include product list - just mention the count in text
+      if (isInventoryQuery) {
+        const totalProducts = await ProductModel.countDocuments({ siteId: context.siteId, status: 'publish' });
+        enhanced.metadata = enhanced.metadata || {};
+        enhanced.metadata.totalProductCount = totalProducts;
+        logger.info('Inventory query detected - providing count only', { totalProducts });
+        return enhanced; // Return without products list
+      }
+      
+      if (shouldIncludeProducts) {
         
         // First, try to get products from LangGraph knowledge
         let relevantProducts: Product[] = [];
@@ -336,9 +357,37 @@ Respond with valid JSON only:
           relevantProducts = await this.getRelevantProducts(analysis, context);
         }
         
-        // If we have products, always return them
+        // If we have products, intelligently limit and prioritize them
         if (relevantProducts && relevantProducts.length > 0) {
-          enhanced.products = relevantProducts.map(product => {
+          // SMART LIMITING: Different limits based on query type
+          let maxProducts = 6; // Default: 6 products (3 for chat + 3 for modal preview)
+          
+          if (isShowAllQuery) {
+            maxProducts = 12; // Show more products when user explicitly asks for all
+          } else if (isSpecificProductQuery) {
+            maxProducts = 3; // Show fewer when user asks about specific products
+          }
+          
+          // Priority: In stock > High ratings > Recent products
+          const prioritizedProducts = relevantProducts
+            .sort((a, b) => {
+              // Priority 1: In stock products first
+              if (a.stockStatus === 'instock' && b.stockStatus !== 'instock') return -1;
+              if (b.stockStatus === 'instock' && a.stockStatus !== 'instock') return 1;
+              
+              // Priority 2: Higher ratings
+              const ratingA = a.averageRating || 0;
+              const ratingB = b.averageRating || 0;
+              if (ratingA !== ratingB) return ratingB - ratingA;
+              
+              // Priority 3: More reviews (popularity)
+              const reviewsA = a.reviewCount || 0;
+              const reviewsB = b.reviewCount || 0;
+              return reviewsB - reviewsA;
+            })
+            .slice(0, maxProducts); // Intelligent limiting based on query type
+            
+          enhanced.products = prioritizedProducts.map(product => {
             const salePrice = product.salePrice && product.salePrice > 0 ? product.salePrice : null;
             const regularPrice = product.regularPrice || product.price;
             const isOnSale = salePrice && salePrice < regularPrice;
@@ -471,8 +520,8 @@ Respond with valid JSON only:
         sampleProducts: products.slice(0, 3).map(p => ({ id: p.id, name: p.name }))
       });
       
-      // Convert products to LangGraph nodes
-      const nodes: LangGraphNode[] = products.slice(0, 10).map(product => ({
+      // Convert products to LangGraph nodes (process ALL products, no limits)
+      const nodes: LangGraphNode[] = products.map(product => ({
         id: product.id,
         content: `${product.name}: ${product.description}. Price: ${product.currency}${product.price}. Categories: ${product.categories.map(c => c.name).join(', ')}. Rating: ${product.averageRating}/5 (${product.reviewCount} reviews).`,
         metadata: {
@@ -528,7 +577,6 @@ Respond with valid JSON only:
 
   private buildSystemPrompt(siteId: string, analysis: any, productKnowledge: LangGraphNode[]): string {
     const knowledgeText = productKnowledge
-      .slice(0, 5) // Limit to avoid token limits
       .map(node => node.content)
       .join('\n');
 
@@ -727,7 +775,7 @@ Remember: Your goal is to provide excellent customer service while helping drive
       }
 
       const products = await ProductModel.searchProducts(siteId, parameters.query, filters);
-      return products.slice(0, 5); // Limit results
+      return products; // Return ALL results, no artificial limits
 
     } catch (error: any) {
       logger.error('Product search error', {
@@ -796,7 +844,7 @@ Remember: Your goal is to provide excellent customer service while helping drive
         index === self.findIndex(p => p.id === product.id)
       );
 
-      return uniqueProducts.slice(0, 5);
+      return uniqueProducts; // Return ALL unique products, no artificial limits
 
     } catch (error: any) {
       logger.error('Get relevant products error', {

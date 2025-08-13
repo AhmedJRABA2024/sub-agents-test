@@ -462,18 +462,10 @@
             const botMessage = data.ai_response ? data.ai_response.message : data.message;
             this.addMessage('bot', botMessage, data);
             
-            // TEMPORARY: Force product rendering for debugging
-            console.log('🔍 FORCED Product check:', data);
-            console.log('🔍 Debug info from WordPress:', data.debug_info);
-            console.log('🔍 Products array:', data.products);
-            console.log('🔍 Message type:', data.message_type);
-            
-            // FORCE product rendering if products exist (ignore all other conditions for now)
-            if (data.products && data.products.length > 0) {
-                console.log('🚀 FORCING handleProductRecommendation with', data.products.length, 'products');
+            // Smart product rendering: Only show products when AI includes them  
+            if (data.products && data.products.length > 0 && data.message_type !== 'welcome') {
+                console.log('✅ Products found, calling handleProductRecommendation with', data.products.length, 'products');
                 this.handleProductRecommendation(data);
-            } else {
-                console.log('❌ Still no products found in response');
             }
             
             // Handle special message types
