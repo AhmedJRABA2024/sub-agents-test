@@ -489,10 +489,10 @@
                 const $lastMessage = $('#chatbot-messages .message:last-child .message-text');
                 console.log('📧 Last message element:', $lastMessage.length ? 'Found' : 'NOT FOUND');
                 
-                // CRITICAL: Never add products to welcome messages
-                const $parentMessage = $lastMessage.closest('.message');
-                const isWelcomeMessage = $parentMessage.closest('.welcome-message').length > 0;
-                console.log('🏠 Welcome message check:', isWelcomeMessage);
+                // CRITICAL: Never add products to welcome messages  
+                // Use data.message_type instead of DOM traversal (more reliable)
+                const isWelcomeMessage = data.message_type === 'welcome';
+                console.log('🏠 Welcome message check (using data.message_type):', isWelcomeMessage, 'actual type:', data.message_type);
                 
                 if (isWelcomeMessage) {
                     console.log('🚫 Skipping product display - this is a welcome message');
