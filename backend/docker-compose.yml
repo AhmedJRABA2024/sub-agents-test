@@ -1,0 +1,225 @@
+version: '3.8'
+
+services:
+  # Main API Service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: ai-salesman-api
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MONGODB_URI=mongodb://mongodb:27017/ai-salesman
+      - REDIS_URL=redis://redis:6379  # Optional: Remove this line to run without Redis
+      - JWT_SECRET=${JWT_SECRET}
+      - API_KEY_SECRET=${API_KEY_SECRET}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
+      - FIREBASE_PRIVATE_KEY_ID=${FIREBASE_PRIVATE_KEY_ID}
+      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY}
+      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL}
+      - FIREBASE_CLIENT_ID=${FIREBASE_CLIENT_ID}
+      - FIREBASE_DATABASE_URL=${FIREBASE_DATABASE_URL}
+      - LANGGRAPH_API_KEY=${LANGGRAPH_API_KEY}
+      - WOOCOMMERCE_WEBHOOK_SECRET=${WOOCOMMERCE_WEBHOOK_SECRET}
+      - SHOPIFY_WEBHOOK_SECRET=${SHOPIFY_WEBHOOK_SECRET}
+    ports:
+      - "3000:3000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - ai-salesman-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # MongoDB Database
+  mongodb:
+    image: mongo:7-jammy
+    container_name: ai-salesman-mongodb
+    restart: unless-stopped
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-password}
+      - MONGO_INITDB_DATABASE=ai-salesman
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - ai-salesman-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command: --wiredTigerCacheSizeGB 1
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: ai-salesman-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./config/redis.conf:/etc/redis/redis.conf:ro
+    networks:
+      - ai-salesman-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    command: redis-server /etc/redis/redis.conf
+
+  # Nginx Load Balancer (Optional for multiple API instances)
+  nginx:
+    image: nginx:alpine
+    container_name: ai-salesman-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/ssl:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - api
+    networks:
+      - ai-salesman-network
+    profiles:
+      - production
+
+  # Monitoring with Prometheus (Optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ai-salesman-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - ai-salesman-network
+    profiles:
+      - monitoring
+
+  # Grafana Dashboard (Optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ai-salesman-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    networks:
+      - ai-salesman-network
+    profiles:
+      - monitoring
+
+  # AI Processing Service (Separate microservice)
+  ai-processor:
+    build:
+      context: .
+      dockerfile: Dockerfile.ai-processor
+    container_name: ai-salesman-ai-processor
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/ai-salesman
+      - REDIS_URL=redis://redis:6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LANGGRAPH_API_KEY=${LANGGRAPH_API_KEY}
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - ai-salesman-network
+    profiles:
+      - microservices
+
+  # Analytics Service (Separate microservice)
+  analytics-processor:
+    build:
+      context: .
+      dockerfile: Dockerfile.analytics
+    container_name: ai-salesman-analytics
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/ai-salesman
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - ai-salesman-network
+    profiles:
+      - microservices
+
+  # Background Job Processor
+  job-processor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: ai-salesman-jobs
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/ai-salesman
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - ai-salesman-network
+    command: ["node", "dist/workers/jobProcessor.js"]
+    profiles:
+      - workers
+
+networks:
+  ai-salesman-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  mongodb_data:
+    driver: local
+  mongodb_config:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  nginx_logs:
+    driver: local
