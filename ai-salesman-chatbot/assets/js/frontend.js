@@ -462,12 +462,18 @@
             const botMessage = data.ai_response ? data.ai_response.message : data.message;
             this.addMessage('bot', botMessage, data);
             
-            // Only show products in AI responses, NOT in welcome messages
-            if (data.products && data.products.length > 0 && data.message_type !== 'welcome') {
-                console.log('Products found, calling handleProductRecommendation');
+            // TEMPORARY: Force product rendering for debugging
+            console.log('🔍 FORCED Product check:', data);
+            console.log('🔍 Debug info from WordPress:', data.debug_info);
+            console.log('🔍 Products array:', data.products);
+            console.log('🔍 Message type:', data.message_type);
+            
+            // FORCE product rendering if products exist (ignore all other conditions for now)
+            if (data.products && data.products.length > 0) {
+                console.log('🚀 FORCING handleProductRecommendation with', data.products.length, 'products');
                 this.handleProductRecommendation(data);
             } else {
-                console.log('No products found in response or this is a welcome message');
+                console.log('❌ Still no products found in response');
             }
             
             // Handle special message types
@@ -477,12 +483,16 @@
         }
         
         handleProductRecommendation(data) {
+            console.log('🎯 handleProductRecommendation called with:', data);
+            
             if (data.products && data.products.length > 0) {
                 const $lastMessage = $('#chatbot-messages .message:last-child .message-text');
+                console.log('📧 Last message element:', $lastMessage.length ? 'Found' : 'NOT FOUND');
                 
                 // CRITICAL: Never add products to welcome messages
                 const $parentMessage = $lastMessage.closest('.message');
                 const isWelcomeMessage = $parentMessage.closest('.welcome-message').length > 0;
+                console.log('🏠 Welcome message check:', isWelcomeMessage);
                 
                 if (isWelcomeMessage) {
                     console.log('🚫 Skipping product display - this is a welcome message');
@@ -491,16 +501,26 @@
                 
                 // Create modern products container
                 const productsContainer = $('<div class="products-recommendation-container"></div>');
+                console.log('📦 Created products container');
                 
-                // Show only first 2-3 products in chat for better UX
-                const maxInlineProducts = 2;
+                // Show max 3 products in chat as per requirements
+                const maxInlineProducts = 3;
                 const productsToShow = data.products.slice(0, maxInlineProducts);
+                console.log('🔢 Products to show:', productsToShow.length, '/', data.products.length);
                 
                 // Add products with modern card design
-                productsToShow.forEach(product => {
+                productsToShow.forEach((product, index) => {
+                    console.log(`🏷️ Processing product ${index + 1}:`, product.name);
                     const enhancedProduct = this.formatProductData(product);
+                    console.log(`✨ Enhanced product ${index + 1}:`, enhancedProduct);
                     const productHtml = this.renderTemplate('modern-product-card-template', enhancedProduct);
-                    productsContainer.append(productHtml);
+                    console.log(`🎨 Generated HTML for product ${index + 1}:`, productHtml ? 'SUCCESS' : 'FAILED');
+                    if (productHtml) {
+                        productsContainer.append(productHtml);
+                        console.log(`✅ Appended product ${index + 1} to container`);
+                    } else {
+                        console.error(`❌ Failed to generate HTML for product ${index + 1}`);
+                    }
                 });
                 
                 // Add "See More Products" button if there are more products
@@ -521,7 +541,12 @@
                     productsContainer.append(seeMoreHtml);
                 }
                 
+                console.log('🎁 Final products container HTML:', productsContainer.html());
+                console.log('📍 Appending products container to last message');
                 $lastMessage.append(productsContainer);
+                console.log('✅ Products container appended successfully');
+            } else {
+                console.log('❌ No products or empty product list in handleProductRecommendation');
             }
         }
         
